@@ -1,0 +1,31 @@
+# Go binaries and build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+/bin/
+
+# Go workspace
+/go.work
+/go.work.sum
+
+# Environment
+.env
+
+# Databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Temp and logs
+/tmp/
+*.tmp
+*.log
+/logs/
+
+# OS files
+.DS_Store
+Thumbs.db
