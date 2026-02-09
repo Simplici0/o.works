@@ -6,6 +6,8 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+
+	"o.works/internal/config"
 )
 
 type server struct {
@@ -13,6 +15,8 @@ type server struct {
 }
 
 func main() {
+	cfg := config.Load()
+
 	templates, err := template.ParseFiles(
 		"web/templates/layout.html",
 		"web/templates/home.html",
@@ -27,8 +31,9 @@ func main() {
 	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.Dir("web/static"))))
 	r.Get("/", srv.handleHome)
 
-	log.Println("listening on :8080")
-	if err := http.ListenAndServe(":8080", r); err != nil {
+	addr := ":" + cfg.Port
+	log.Printf("listening on %s", addr)
+	if err := http.ListenAndServe(addr, r); err != nil {
 		log.Fatalf("server stopped: %v", err)
 	}
 }
