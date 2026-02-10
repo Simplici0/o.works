@@ -1,0 +1,17 @@
+{{define "content"}}
+  <main>
+    <h1>Iniciar sesión</h1>
+    {{if .ErrorMessage}}
+      <p style="color: #b00020;">{{.ErrorMessage}}</p>
+    {{end}}
+    <form method="post" action="/login">
+      <label for="email">Email</label>
+      <input id="email" name="email" type="email" required />
+
+      <label for="password">Contraseña</label>
+      <input id="password" name="password" type="password" required />
+
+      <button type="submit">Entrar</button>
+    </form>
+  </main>
+{{end}}
