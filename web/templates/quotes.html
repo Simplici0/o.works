@@ -20,7 +20,7 @@
         {{range .Quotes}}
           <tr>
             <td>{{.CreatedAt}}</td>
-            <td>{{if .Title}}{{.Title}}{{else}}-{{end}}</td>
+            <td><a href="/quotes/{{.ID}}">{{if .Title}}{{.Title}}{{else}}Ver detalle{{end}}</a></td>
             <td>{{printf "%.2f" .Total}}</td>
           </tr>
         {{else}}

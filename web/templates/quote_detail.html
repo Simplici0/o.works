@@ -1,0 +1,77 @@
+{{define "content"}}
+  <main>
+    <h1>{{if .Title}}{{.Title}}{{else}}Cotización #{{.ID}}{{end}}</h1>
+    <p><strong>Fecha:</strong> {{.CreatedAt}}</p>
+
+    <h2>Item</h2>
+    <table>
+      <tbody>
+        <tr><th>Material</th><td>{{if .Item.MaterialName}}{{.Item.MaterialName}}{{else}}-{{end}}</td></tr>
+        <tr><th>Gramos</th><td>{{printf "%.2f" .Item.Grams}}</td></tr>
+        <tr><th>Tiempo impresión</th><td>{{printf "%.2f" .Item.PrintMinutes}} min</td></tr>
+        <tr><th>Mano de obra</th><td>{{printf "%.2f" .Item.LaborMinutes}} min</td></tr>
+        <tr><th>Cantidad</th><td>{{printf "%.0f" .Item.Quantity}}</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Snapshot del desglose</h2>
+    <table>
+      <tbody>
+        <tr><th>Material</th><td>{{printf "%.2f" .Breakdown.MaterialCost}} {{.Currency}}</td></tr>
+        <tr><th>Máquina</th><td>{{printf "%.2f" .Breakdown.MachineCost}} {{.Currency}}</td></tr>
+        <tr><th>Mano de obra</th><td>{{printf "%.2f" .Breakdown.LaborCost}} {{.Currency}}</td></tr>
+        <tr><th>Subtotal</th><td>{{printf "%.2f" .Breakdown.Subtotal}} {{.Currency}}</td></tr>
+        <tr><th>Overhead</th><td>{{printf "%.2f" .Breakdown.Overhead}} {{.Currency}}</td></tr>
+        <tr><th>Seguro de falla</th><td>{{printf "%.2f" .Breakdown.FailureInsurance}} {{.Currency}}</td></tr>
+        <tr><th>Packaging</th><td>{{printf "%.2f" .Breakdown.PackagingCost}} {{.Currency}}</td></tr>
+        <tr><th>Shipping</th><td>{{printf "%.2f" .Breakdown.ShippingCost}} {{.Currency}}</td></tr>
+        <tr><th>Margen</th><td>{{printf "%.2f" .Breakdown.Margin}} {{.Currency}}</td></tr>
+        <tr><th>Impuesto</th><td>{{printf "%.2f" .Breakdown.Tax}} {{.Currency}}</td></tr>
+        <tr><th>Total</th><td><strong>{{printf "%.2f" .Totals.Total}} {{.Currency}}</strong></td></tr>
+      </tbody>
+    </table>
+
+    <h2>Copiar texto</h2>
+    <button type="button" id="copy-text-btn" data-text-url="/quotes/{{.ID}}/text">Copiar texto</button>
+    <p id="copy-status" aria-live="polite"></p>
+    <textarea id="quote-text" rows="16" style="width:100%;display:none;"></textarea>
+
+    {{if .Notes}}
+      <h2>Notas</h2>
+      <p>{{.Notes}}</p>
+    {{end}}
+
+    <p><a href="/quotes">Volver al historial</a></p>
+  </main>
+
+  <script>
+    (() => {
+      const button = document.getElementById('copy-text-btn');
+      const textarea = document.getElementById('quote-text');
+      const status = document.getElementById('copy-status');
+      if (!button || !textarea || !status) return;
+
+      button.addEventListener('click', async () => {
+        status.textContent = 'Cargando texto…';
+        const response = await fetch(button.dataset.textUrl, { headers: { 'Accept': 'text/plain' } });
+        if (!response.ok) {
+          status.textContent = 'No se pudo generar el texto.';
+          return;
+        }
+
+        const text = await response.text();
+        textarea.value = text;
+        textarea.style.display = 'block';
+        textarea.focus();
+        textarea.select();
+
+        try {
+          await navigator.clipboard.writeText(text);
+          status.textContent = 'Texto copiado al portapapeles.';
+        } catch (_) {
+          status.textContent = 'Texto listo para copiar (seleccionado en el cuadro).';
+        }
+      });
+    })();
+  </script>
+{{end}}
