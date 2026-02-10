@@ -2,9 +2,12 @@
   <main>
     <h1>Historial de cotizaciones</h1>
 
-    <form method="get" action="/quotes">
-      <label for="q">Buscar por título o notas</label>
-      <input id="q" name="q" type="search" value="{{.Query}}" />
+    <form method="get" action="/quotes" class="form-stack">
+      <div class="form-row">
+        <label for="q">Buscar por título o notas</label>
+        <input id="q" name="q" type="search" value="{{.Query}}" />
+        <p class="help-text">Filtra por texto parcial.</p>
+      </div>
       <button type="submit">Buscar</button>
     </form>
 
@@ -13,7 +16,7 @@
         <tr>
           <th>Fecha</th>
           <th>Título</th>
-          <th>Total</th>
+          <th class="num">Total</th>
         </tr>
       </thead>
       <tbody>
@@ -21,11 +24,11 @@
           <tr>
             <td>{{.CreatedAt}}</td>
             <td>{{if .Title}}{{.Title}}{{else}}-{{end}}</td>
-            <td>{{printf "%.2f" .Total}}</td>
+            <td class="num">{{printf "%.2f" .Total}}</td>
           </tr>
         {{else}}
           <tr>
-            <td colspan="3">Sin cotizaciones.</td>
+            <td colspan="3"><p class="empty-state">Sin cotizaciones todavía.</p></td>
           </tr>
         {{end}}
       </tbody>

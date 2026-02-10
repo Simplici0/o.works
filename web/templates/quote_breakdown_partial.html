@@ -1,19 +1,21 @@
 {{if .ErrorMessage}}
-  <p>{{.ErrorMessage}}</p>
+  <p class="status status-error" role="status"><span class="badge badge-error">[ERROR]</span> {{.ErrorMessage}}</p>
+{{else if not .Currency}}
+  <p class="empty-state">Completa el formulario para obtener un cálculo.</p>
 {{else}}
-  <table border="1" cellpadding="6">
+  <table class="breakdown-table">
     <tbody>
-      <tr><th>Material</th><td>{{printf "%.2f" .Result.Breakdown.MaterialCost}} {{.Currency}}</td></tr>
-      <tr><th>Máquina</th><td>{{printf "%.2f" .Result.Breakdown.MachineCost}} {{.Currency}}</td></tr>
-      <tr><th>Mano de obra</th><td>{{printf "%.2f" .Result.Breakdown.LaborCost}} {{.Currency}}</td></tr>
-      <tr><th>Subtotal</th><td>{{printf "%.2f" .Result.Breakdown.Subtotal}} {{.Currency}}</td></tr>
-      <tr><th>Overhead</th><td>{{printf "%.2f" .Result.Breakdown.Overhead}} {{.Currency}}</td></tr>
-      <tr><th>Seguro de falla</th><td>{{printf "%.2f" .Result.Breakdown.FailureInsurance}} {{.Currency}}</td></tr>
-      <tr><th>Packaging</th><td>{{printf "%.2f" .Result.Breakdown.PackagingCost}} {{.Currency}}</td></tr>
-      <tr><th>Shipping</th><td>{{printf "%.2f" .Result.Breakdown.ShippingCost}} {{.Currency}}</td></tr>
-      <tr><th>Margen</th><td>{{printf "%.2f" .Result.Breakdown.Margin}} {{.Currency}}</td></tr>
-      <tr><th>Impuesto</th><td>{{printf "%.2f" .Result.Breakdown.Tax}} {{.Currency}}</td></tr>
-      <tr><th>Total</th><td><strong>{{printf "%.2f" .Result.Totals.Total}} {{.Currency}}</strong></td></tr>
+      <tr><th scope="row">Material</th><td>{{printf "%.2f" .Result.Breakdown.MaterialCost}} {{.Currency}}</td></tr>
+      <tr><th scope="row">Máquina</th><td>{{printf "%.2f" .Result.Breakdown.MachineCost}} {{.Currency}}</td></tr>
+      <tr><th scope="row">Mano de obra</th><td>{{printf "%.2f" .Result.Breakdown.LaborCost}} {{.Currency}}</td></tr>
+      <tr><th scope="row">Subtotal</th><td>{{printf "%.2f" .Result.Breakdown.Subtotal}} {{.Currency}}</td></tr>
+      <tr><th scope="row">Overhead</th><td>{{printf "%.2f" .Result.Breakdown.Overhead}} {{.Currency}}</td></tr>
+      <tr><th scope="row">Seguro de falla</th><td>{{printf "%.2f" .Result.Breakdown.FailureInsurance}} {{.Currency}}</td></tr>
+      <tr><th scope="row">Packaging</th><td>{{printf "%.2f" .Result.Breakdown.PackagingCost}} {{.Currency}}</td></tr>
+      <tr><th scope="row">Shipping</th><td>{{printf "%.2f" .Result.Breakdown.ShippingCost}} {{.Currency}}</td></tr>
+      <tr><th scope="row">Margen</th><td>{{printf "%.2f" .Result.Breakdown.Margin}} {{.Currency}}</td></tr>
+      <tr><th scope="row">Impuesto</th><td>{{printf "%.2f" .Result.Breakdown.Tax}} {{.Currency}}</td></tr>
+      <tr class="breakdown-total"><th scope="row">TOTAL</th><td>{{printf "%.2f" .Result.Totals.Total}} {{.Currency}}</td></tr>
     </tbody>
   </table>
 {{end}}
