@@ -6,6 +6,7 @@ import (
 )
 
 const (
+	defaultAppEnv = "dev"
 	defaultDBPath = "./dev.db"
 	defaultPort   = "8080"
 )
@@ -15,8 +16,14 @@ type Config struct {
 	AdminEmail    string
 	AdminPassword string
 	SessionSecret string
+	AppEnv        string
 	DBPath        string
 	Port          string
+}
+
+// IsDev reports whether the app is running in development mode.
+func (c Config) IsDev() bool {
+	return c.AppEnv == defaultAppEnv
 }
 
 // Load reads environment variables and returns a populated Config.
@@ -29,10 +36,14 @@ func Load() Config {
 		AdminEmail:    os.Getenv("ADMIN_EMAIL"),
 		AdminPassword: os.Getenv("ADMIN_PASSWORD"),
 		SessionSecret: os.Getenv("SESSION_SECRET"),
+		AppEnv:        os.Getenv("APP_ENV"),
 		DBPath:        os.Getenv("DB_PATH"),
 		Port:          os.Getenv("PORT"),
 	}
 
+	if cfg.AppEnv == "" {
+		cfg.AppEnv = defaultAppEnv
+	}
 	if cfg.DBPath == "" {
 		cfg.DBPath = defaultDBPath
 	}
