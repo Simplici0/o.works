@@ -7,8 +7,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"o.works/internal/config"
-	"o.works/internal/db"
+	"github.com/Simplici0/o.works/internal/config"
+	"github.com/Simplici0/o.works/internal/db"
 )
 
 type server struct {

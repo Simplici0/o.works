@@ -21,6 +21,10 @@ type Config struct {
 
 // Load reads environment variables and returns a populated Config.
 func Load() Config {
+	// Best-effort: load local dev environment variables.
+	// We don't fail if the file is missing; production should use real env injection.
+	_ = loadDotEnv(".env")
+
 	cfg := Config{
 		AdminEmail:    os.Getenv("ADMIN_EMAIL"),
 		AdminPassword: os.Getenv("ADMIN_PASSWORD"),
