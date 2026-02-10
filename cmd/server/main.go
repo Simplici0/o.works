@@ -7,6 +7,7 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -46,6 +47,19 @@ type ratesViewData struct {
 	RateConfig rateConfig
 }
 
+type material struct {
+	ID        int64
+	Name      string
+	CostPerKg float64
+	Notes     string
+	Active    bool
+}
+
+type materialsViewData struct {
+	baseViewData
+	Materials []material
+}
+
 func main() {
 	cfg := config.Load()
 
@@ -80,6 +94,9 @@ func main() {
 	r.Post("/logout", srv.handleLogout)
 	r.Get("/admin/rates", srv.handleAdminRatesForm)
 	r.Post("/admin/rates", srv.handleAdminRatesSubmit)
+	r.Get("/admin/materials", srv.handleAdminMaterialsForm)
+	r.Post("/admin/materials", srv.handleAdminMaterialsCreate)
+	r.Post("/admin/materials/{id}", srv.handleAdminMaterialsUpdate)
 
 	addr := ":" + cfg.Port
 	log.Printf("listening on %s", addr)
@@ -165,6 +182,108 @@ func (s *server) handleAdminRatesSubmit(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
+func (s *server) handleAdminMaterialsForm(w http.ResponseWriter, r *http.Request) {
+	materials, err := s.listMaterials()
+	if err != nil {
+		http.Error(w, "failed to load materials", http.StatusInternalServerError)
+		return
+	}
+
+	s.renderTemplate(w, "admin_materials.html", materialsViewData{
+		baseViewData: baseViewData{
+			ErrorMessage:   r.URL.Query().Get("error"),
+			SuccessMessage: r.URL.Query().Get("success"),
+		},
+		Materials: materials,
+	})
+}
+
+func (s *server) handleAdminMaterialsCreate(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+
+	name := strings.TrimSpace(r.FormValue("name"))
+	notes := strings.TrimSpace(r.FormValue("notes"))
+	if name == "" {
+		http.Redirect(w, r, "/admin/materials?error=name+es+requerido", http.StatusSeeOther)
+		return
+	}
+
+	costPerKg, err := parsePositiveFloat(r.FormValue("cost_per_kg"), "cost_per_kg")
+	if err != nil {
+		http.Redirect(w, r, "/admin/materials?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
+
+	_, err = s.db.Exec(`
+		INSERT INTO materials (name, cost_per_kg, notes, active)
+		VALUES (?, ?, ?, TRUE)
+	`, name, costPerKg, notes)
+	if err != nil {
+		http.Error(w, "failed to create material", http.StatusInternalServerError)
+		return
+	}
+
+	http.Redirect(w, r, "/admin/materials?success=Material+creado+correctamente", http.StatusSeeOther)
+}
+
+func (s *server) handleAdminMaterialsUpdate(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || id <= 0 {
+		http.Error(w, "invalid material id", http.StatusBadRequest)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+
+	name := strings.TrimSpace(r.FormValue("name"))
+	notes := strings.TrimSpace(r.FormValue("notes"))
+	if name == "" {
+		http.Redirect(w, r, "/admin/materials?error=name+es+requerido", http.StatusSeeOther)
+		return
+	}
+
+	costPerKg, err := parsePositiveFloat(r.FormValue("cost_per_kg"), "cost_per_kg")
+	if err != nil {
+		http.Redirect(w, r, "/admin/materials?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
+
+	active := r.FormValue("active") == "1"
+
+	result, err := s.db.Exec(`
+		UPDATE materials
+		SET
+			name = ?,
+			cost_per_kg = ?,
+			notes = ?,
+			active = ?,
+			updated_at = CURRENT_TIMESTAMP
+		WHERE id = ?
+	`, name, costPerKg, notes, active, id)
+	if err != nil {
+		http.Error(w, "failed to update material", http.StatusInternalServerError)
+		return
+	}
+
+	affected, err := result.RowsAffected()
+	if err != nil {
+		http.Error(w, "failed to update material", http.StatusInternalServerError)
+		return
+	}
+	if affected == 0 {
+		http.NotFound(w, r)
+		return
+	}
+
+	http.Redirect(w, r, "/admin/materials?success=Material+actualizado+correctamente", http.StatusSeeOther)
+}
+
 func parseRateConfigForm(r *http.Request) (rateConfig, error) {
 	rates := rateConfig{Currency: "COP"}
 
@@ -209,6 +328,17 @@ func parsePercent(raw, field string) (float64, error) {
 	}
 	if value > 100 {
 		return 0, fmt.Errorf("%s debe estar entre 0 y 100", field)
+	}
+	return value, nil
+}
+
+func parsePositiveFloat(raw, field string) (float64, error) {
+	value, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		return 0, fmt.Errorf("%s debe ser numérico", field)
+	}
+	if value <= 0 {
+		return 0, fmt.Errorf("%s debe ser mayor a 0", field)
 	}
 	return value, nil
 }
@@ -330,4 +460,31 @@ func (s *server) updateRateConfig(rc rateConfig) error {
 	}
 
 	return nil
+}
+
+func (s *server) listMaterials() ([]material, error) {
+	rows, err := s.db.Query(`
+		SELECT id, name, cost_per_kg, COALESCE(notes, ''), active
+		FROM materials
+		ORDER BY id DESC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("query materials: %w", err)
+	}
+	defer rows.Close()
+
+	materials := make([]material, 0)
+	for rows.Next() {
+		var m material
+		if err := rows.Scan(&m.ID, &m.Name, &m.CostPerKg, &m.Notes, &m.Active); err != nil {
+			return nil, fmt.Errorf("scan material: %w", err)
+		}
+		materials = append(materials, m)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate materials: %w", err)
+	}
+
+	return materials, nil
 }
