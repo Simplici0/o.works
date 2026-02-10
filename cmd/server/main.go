@@ -90,7 +90,6 @@ type packagingViewData struct {
 	PackagingRates []packagingRate
 }
 
-<<<<<<< HEAD
 type quoteFormValues struct {
 	MaterialID    int64
 	ShippingID    int64
@@ -117,7 +116,8 @@ type quoteViewData struct {
 	PackagingRates []packagingRate
 	Form           quoteFormValues
 	Breakdown      quoteBreakdownViewData
-=======
+}
+
 type quoteListItem struct {
 	CreatedAt string
 	Title     string
@@ -128,7 +128,6 @@ type quotesViewData struct {
 	baseViewData
 	Query  string
 	Quotes []quoteListItem
->>>>>>> task/14-quotes-list-search
 }
 
 func main() {
@@ -174,12 +173,9 @@ func main() {
 	r.Get("/admin/packaging", srv.handleAdminPackagingForm)
 	r.Post("/admin/packaging", srv.handleAdminPackagingCreate)
 	r.Post("/admin/packaging/{id}", srv.handleAdminPackagingUpdate)
-<<<<<<< HEAD
 	r.Get("/quote", srv.handleQuoteForm)
 	r.Post("/quote/calc", srv.handleQuoteCalc)
-=======
 	r.Get("/quotes", srv.handleQuotesList)
->>>>>>> task/14-quotes-list-search
 
 	addr := ":" + cfg.Port
 	log.Printf("listening on %s", addr)
@@ -541,7 +537,6 @@ func (s *server) handleAdminPackagingUpdate(w http.ResponseWriter, r *http.Reque
 	http.Redirect(w, r, "/admin/packaging?success=Tarifa+de+empaque+actualizada+correctamente", http.StatusSeeOther)
 }
 
-<<<<<<< HEAD
 func (s *server) handleQuoteForm(w http.ResponseWriter, r *http.Request) {
 	materials, err := s.listActiveMaterials()
 	if err != nil {
@@ -636,7 +631,8 @@ func (s *server) handleQuoteCalc(w http.ResponseWriter, r *http.Request) {
 		Currency: rates.Currency,
 		Result:   result,
 	})
-=======
+}
+
 func (s *server) handleQuotesList(w http.ResponseWriter, r *http.Request) {
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
 	quotes, err := s.listQuotes(query)
@@ -698,7 +694,6 @@ func extractTotalFromJSON(totalsJSON string) float64 {
 	}
 
 	return 0
->>>>>>> task/14-quotes-list-search
 }
 
 func parseRateConfigForm(r *http.Request) (rateConfig, error) {
