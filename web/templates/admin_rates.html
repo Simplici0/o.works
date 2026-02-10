@@ -3,33 +3,47 @@
     <h1>Configuración de tarifas</h1>
 
     {{if .ErrorMessage}}
-      <p style="color: #b00020;">{{.ErrorMessage}}</p>
+      <p class="status status-error" role="alert"><span class="badge badge-error">[ERROR]</span> {{.ErrorMessage}}</p>
     {{end}}
     {{if .SuccessMessage}}
-      <p style="color: #0a7f2e;">{{.SuccessMessage}}</p>
+      <p class="status status-ok" role="status"><span class="badge badge-ok">[OK]</span> {{.SuccessMessage}}</p>
     {{end}}
 
-    <form method="post" action="/admin/rates">
-      <label for="machine_hourly_rate">machine_hourly_rate (COP/h)</label>
-      <input id="machine_hourly_rate" name="machine_hourly_rate" type="number" min="0" step="any" value="{{.RateConfig.MachineHourlyRate}}" required />
+    <form method="post" action="/admin/rates" class="form-grid">
+      <div class="form-row">
+        <label for="machine_hourly_rate">machine_hourly_rate (COP/h)</label>
+        <input id="machine_hourly_rate" name="machine_hourly_rate" type="number" min="0" step="any" value="{{.RateConfig.MachineHourlyRate}}" required />
+      </div>
 
-      <label for="labor_per_minute">labor_per_minute (COP/min)</label>
-      <input id="labor_per_minute" name="labor_per_minute" type="number" min="0" step="any" value="{{.RateConfig.LaborPerMinute}}" required />
+      <div class="form-row">
+        <label for="labor_per_minute">labor_per_minute (COP/min)</label>
+        <input id="labor_per_minute" name="labor_per_minute" type="number" min="0" step="any" value="{{.RateConfig.LaborPerMinute}}" required />
+      </div>
 
-      <label for="overhead_fixed">overhead_fixed (COP)</label>
-      <input id="overhead_fixed" name="overhead_fixed" type="number" min="0" step="any" value="{{.RateConfig.OverheadFixed}}" required />
+      <div class="form-row">
+        <label for="overhead_fixed">overhead_fixed (COP)</label>
+        <input id="overhead_fixed" name="overhead_fixed" type="number" min="0" step="any" value="{{.RateConfig.OverheadFixed}}" required />
+      </div>
 
-      <label for="overhead_percent">overhead_percent (%)</label>
-      <input id="overhead_percent" name="overhead_percent" type="number" min="0" max="100" step="any" value="{{.RateConfig.OverheadPercent}}" required />
+      <div class="form-row">
+        <label for="overhead_percent">overhead_percent (%)</label>
+        <input id="overhead_percent" name="overhead_percent" type="number" min="0" max="100" step="any" value="{{.RateConfig.OverheadPercent}}" required />
+      </div>
 
-      <label for="failure_rate_percent">failure_rate_percent (%)</label>
-      <input id="failure_rate_percent" name="failure_rate_percent" type="number" min="0" max="100" step="any" value="{{.RateConfig.FailureRatePercent}}" required />
+      <div class="form-row">
+        <label for="failure_rate_percent">failure_rate_percent (%)</label>
+        <input id="failure_rate_percent" name="failure_rate_percent" type="number" min="0" max="100" step="any" value="{{.RateConfig.FailureRatePercent}}" required />
+      </div>
 
-      <label for="tax_percent">tax_percent (%)</label>
-      <input id="tax_percent" name="tax_percent" type="number" min="0" max="100" step="any" value="{{.RateConfig.TaxPercent}}" required />
+      <div class="form-row">
+        <label for="tax_percent">tax_percent (%)</label>
+        <input id="tax_percent" name="tax_percent" type="number" min="0" max="100" step="any" value="{{.RateConfig.TaxPercent}}" required />
+      </div>
 
-      <label for="currency">currency</label>
-      <input id="currency" name="currency" type="text" value="COP" readonly />
+      <div class="form-row">
+        <label for="currency">currency</label>
+        <input id="currency" name="currency" type="text" value="COP" readonly />
+      </div>
 
       <button type="submit">Guardar</button>
     </form>

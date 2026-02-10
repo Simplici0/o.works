@@ -3,74 +3,103 @@
     <h1>Shipping rates</h1>
 
     {{if .ErrorMessage}}
-      <p style="color: #b00020;">{{.ErrorMessage}}</p>
+      <p class="status status-error" role="alert"><span class="badge badge-error">[ERROR]</span> {{.ErrorMessage}}</p>
     {{end}}
     {{if .SuccessMessage}}
-      <p style="color: #0a7f2e;">{{.SuccessMessage}}</p>
+      <p class="status status-ok" role="status"><span class="badge badge-ok">[OK]</span> {{.SuccessMessage}}</p>
     {{end}}
 
     <h2>Nueva tarifa</h2>
-    <form method="post" action="/admin/shipping">
-      <label for="new_scope">scope</label>
-      <select id="new_scope" name="scope" required>
-        <option value="CO">CO</option>
-        <option value="INTL">INTL</option>
-      </select>
+    <form method="post" action="/admin/shipping" class="form-grid">
+      <div class="form-row">
+        <label for="new_scope">scope</label>
+        <select id="new_scope" name="scope" required>
+          <option value="CO">CO</option>
+          <option value="INTL">INTL</option>
+        </select>
+      </div>
 
-      <label for="new_country">country</label>
-      <input id="new_country" name="country" type="text" required />
+      <div class="form-row">
+        <label for="new_country">country</label>
+        <input id="new_country" name="country" type="text" required />
+      </div>
 
-      <label for="new_city">city</label>
-      <input id="new_city" name="city" type="text" />
+      <div class="form-row">
+        <label for="new_city">city</label>
+        <input id="new_city" name="city" type="text" />
+      </div>
 
-      <label for="new_flat_cost">flat_cost</label>
-      <input id="new_flat_cost" name="flat_cost" type="number" step="any" min="0" required />
+      <div class="form-row">
+        <label for="new_flat_cost">flat_cost</label>
+        <input id="new_flat_cost" name="flat_cost" type="number" step="any" min="0" required />
+      </div>
 
-      <label for="new_notes">notes</label>
-      <input id="new_notes" name="notes" type="text" />
+      <div class="form-row">
+        <label for="new_notes">notes</label>
+        <input id="new_notes" name="notes" type="text" />
+      </div>
 
       <input type="hidden" name="active" value="0" />
-      <label for="new_active">
-        <input id="new_active" name="active" type="checkbox" value="1" checked /> activo
-      </label>
+      <div class="form-row">
+        <label for="new_active">activo</label>
+        <input id="new_active" name="active" type="checkbox" value="1" checked />
+      </div>
 
       <button type="submit">Crear</button>
     </form>
 
-    <h2>Lista (activos/inactivos)</h2>
+    <div class="terminal-divider">activos / inactivos</div>
     {{if .ShippingRates}}
-      {{range .ShippingRates}}
-        <form method="post" action="/admin/shipping/{{.ID}}" style="margin-bottom: 1rem; border: 1px solid #ddd; padding: 0.75rem;">
-          <p><strong>ID:</strong> {{.ID}}</p>
+      <div class="list-shell">
+        {{range .ShippingRates}}
+          <form method="post" action="/admin/shipping/{{.ID}}" class="list-item form-stack">
+            <div class="list-item-header">
+              <p><strong>ID:</strong> {{.ID}}</p>
+              <span class="badge {{if .Active}}badge-ok{{else}}badge-warn{{end}}">{{if .Active}}[OK]{{else}}[WARN]{{end}} {{if .Active}}activo{{else}}inactivo{{end}}</span>
+            </div>
 
-          <label for="scope_{{.ID}}">scope</label>
-          <select id="scope_{{.ID}}" name="scope" required>
-            <option value="CO" {{if eq .Scope "CO"}}selected{{end}}>CO</option>
-            <option value="INTL" {{if eq .Scope "INTL"}}selected{{end}}>INTL</option>
-          </select>
+            <div class="form-grid">
+              <div class="form-row">
+                <label for="scope_{{.ID}}">scope</label>
+                <select id="scope_{{.ID}}" name="scope" required>
+                  <option value="CO" {{if eq .Scope "CO"}}selected{{end}}>CO</option>
+                  <option value="INTL" {{if eq .Scope "INTL"}}selected{{end}}>INTL</option>
+                </select>
+              </div>
 
-          <label for="country_{{.ID}}">country</label>
-          <input id="country_{{.ID}}" name="country" type="text" value="{{.Country}}" required />
+              <div class="form-row">
+                <label for="country_{{.ID}}">country</label>
+                <input id="country_{{.ID}}" name="country" type="text" value="{{.Country}}" required />
+              </div>
 
-          <label for="city_{{.ID}}">city</label>
-          <input id="city_{{.ID}}" name="city" type="text" value="{{.City}}" />
+              <div class="form-row">
+                <label for="city_{{.ID}}">city</label>
+                <input id="city_{{.ID}}" name="city" type="text" value="{{.City}}" />
+              </div>
 
-          <label for="flat_cost_{{.ID}}">flat_cost</label>
-          <input id="flat_cost_{{.ID}}" name="flat_cost" type="number" step="any" min="0" value="{{.FlatCost}}" required />
+              <div class="form-row">
+                <label for="flat_cost_{{.ID}}">flat_cost</label>
+                <input id="flat_cost_{{.ID}}" name="flat_cost" type="number" step="any" min="0" value="{{.FlatCost}}" required />
+              </div>
 
-          <label for="notes_{{.ID}}">notes</label>
-          <input id="notes_{{.ID}}" name="notes" type="text" value="{{.Notes}}" />
+              <div class="form-row">
+                <label for="notes_{{.ID}}">notes</label>
+                <input id="notes_{{.ID}}" name="notes" type="text" value="{{.Notes}}" />
+              </div>
+            </div>
 
-          <input type="hidden" name="active" value="0" />
-          <label for="active_{{.ID}}">
-            <input id="active_{{.ID}}" name="active" type="checkbox" value="1" {{if .Active}}checked{{end}} /> activo
-          </label>
+            <input type="hidden" name="active" value="0" />
+            <div class="form-row">
+              <label for="active_{{.ID}}">activo</label>
+              <input id="active_{{.ID}}" name="active" type="checkbox" value="1" {{if .Active}}checked{{end}} />
+            </div>
 
-          <button type="submit">Editar</button>
-        </form>
-      {{end}}
+            <button type="submit">Editar</button>
+          </form>
+        {{end}}
+      </div>
     {{else}}
-      <p>No hay shipping rates creadas.</p>
+      <p class="empty-state">No hay shipping rates creadas.</p>
     {{end}}
 
     <p><a href="/">Volver al inicio</a></p>

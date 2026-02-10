@@ -1,12 +1,18 @@
 {{define "content"}}
   <main>
-    <p>OK</p>
-    <p><a href="/admin/rates">Administrar tarifas</a></p>
-    <p><a href="/admin/materials">Administrar materiales</a></p>
-    <p><a href="/admin/shipping">Administrar shipping rates</a></p>
-    <p><a href="/admin/packaging">Administrar packaging rates</a></p>
-    <p><a href="/quote">Abrir cotizador</a></p>
-    <form method="post" action="/logout">
+    <h1>Panel</h1>
+    <p class="status status-ok"><span class="badge badge-ok">[OK]</span> Sesión activa.</p>
+
+    <div class="terminal-divider">quick links</div>
+    <ul>
+      <li><a href="/admin/rates">Administrar tarifas</a></li>
+      <li><a href="/admin/materials">Administrar materiales</a></li>
+      <li><a href="/admin/shipping">Administrar shipping rates</a></li>
+      <li><a href="/admin/packaging">Administrar packaging rates</a></li>
+      <li><a href="/quote">Abrir cotizador</a></li>
+    </ul>
+
+    <form method="post" action="/logout" class="form-stack">
       <button type="submit">Cerrar sesión</button>
     </form>
   </main>
