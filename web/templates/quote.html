@@ -1,0 +1,106 @@
+{{define "content"}}
+  <main>
+    <h1>Cotizador</h1>
+
+    <form id="quote-form" hx-post="/quote/calc" hx-trigger="change, keyup changed delay:300ms" hx-target="#breakdown" hx-swap="innerHTML">
+      <fieldset>
+        <label for="material_id">Material</label>
+        <select id="material_id" name="material_id" required>
+          {{range .Materials}}
+            <option value="{{.ID}}" {{if eq $.Form.MaterialID .ID}}selected{{end}}>{{.Name}}</option>
+          {{end}}
+        </select>
+      </fieldset>
+
+      <fieldset>
+        <label for="shipping_id">Shipping</label>
+        <select id="shipping_id" name="shipping_id">
+          <option value="">Sin envío</option>
+          {{range .ShippingRates}}
+            <option value="{{.ID}}" {{if eq $.Form.ShippingID .ID}}selected{{end}}>{{.Scope}} - {{.Country}}{{if .City}} / {{.City}}{{end}} ({{printf "%.2f" .FlatCost}})</option>
+          {{end}}
+        </select>
+      </fieldset>
+
+      <fieldset>
+        <label for="packaging_id">Packaging</label>
+        <select id="packaging_id" name="packaging_id">
+          <option value="">Sin empaque</option>
+          {{range .PackagingRates}}
+            <option value="{{.ID}}" {{if eq $.Form.PackagingID .ID}}selected{{end}}>{{.Name}} ({{printf "%.2f" .FlatCost}})</option>
+          {{end}}
+        </select>
+      </fieldset>
+
+      <fieldset>
+        <label for="grams">Gramos</label>
+        <input id="grams" name="grams" type="number" min="0.01" step="0.01" value="{{printf "%.2f" .Form.Grams}}" required />
+      </fieldset>
+
+      <fieldset>
+        <label for="printMinutes">Minutos de impresión</label>
+        <input id="printMinutes" name="printMinutes" type="number" min="0" step="0.01" value="{{printf "%.2f" .Form.PrintMinutes}}" required />
+      </fieldset>
+
+      <fieldset>
+        <label for="laborMinutes">Minutos de mano de obra</label>
+        <input id="laborMinutes" name="laborMinutes" type="number" min="0" step="0.01" value="{{printf "%.2f" .Form.LaborMinutes}}" required />
+      </fieldset>
+
+      <fieldset>
+        <label for="quantity">Cantidad</label>
+        <input id="quantity" name="quantity" type="number" min="1" step="1" value="{{printf "%.0f" .Form.Quantity}}" required />
+      </fieldset>
+
+      <fieldset>
+        <label for="wastePercent">Merma (%)</label>
+        <input id="wastePercent" name="wastePercent" type="number" min="0" max="100" step="0.01" value="{{printf "%.2f" .Form.WastePercent}}" required />
+      </fieldset>
+
+      <fieldset>
+        <label for="marginPercent">Margen (%)</label>
+        <input id="marginPercent" name="marginPercent" type="number" min="0" max="100" step="0.01" value="{{printf "%.2f" .Form.MarginPercent}}" required />
+      </fieldset>
+
+      <fieldset>
+        <label for="taxEnabled">Incluir impuesto</label>
+        <input id="taxEnabled" name="taxEnabled" type="checkbox" value="1" {{if .Form.TaxEnabled}}checked{{end}} />
+      </fieldset>
+
+      <fieldset>
+        <label for="taxPercent">Impuesto (%)</label>
+        <input id="taxPercent" name="taxPercent" type="number" min="0" max="100" step="0.01" value="{{printf "%.2f" .Form.TaxPercent}}" required />
+      </fieldset>
+    </form>
+
+    <div id="breakdown">
+      {{template "quote_breakdown" .Breakdown}}
+    </div>
+
+    <p><a href="/">Volver</a></p>
+  </main>
+
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+{{end}}
+
+{{define "quote_breakdown"}}
+  {{if .ErrorMessage}}
+    <p>{{.ErrorMessage}}</p>
+  {{else}}
+    <table border="1" cellpadding="6">
+      <tbody>
+        <tr><th>Material</th><td>{{printf "%.2f" .Result.Breakdown.MaterialCost}} {{.Currency}}</td></tr>
+        <tr><th>Máquina</th><td>{{printf "%.2f" .Result.Breakdown.MachineCost}} {{.Currency}}</td></tr>
+        <tr><th>Mano de obra</th><td>{{printf "%.2f" .Result.Breakdown.LaborCost}} {{.Currency}}</td></tr>
+        <tr><th>Subtotal</th><td>{{printf "%.2f" .Result.Breakdown.Subtotal}} {{.Currency}}</td></tr>
+        <tr><th>Overhead</th><td>{{printf "%.2f" .Result.Breakdown.Overhead}} {{.Currency}}</td></tr>
+        <tr><th>Seguro de falla</th><td>{{printf "%.2f" .Result.Breakdown.FailureInsurance}} {{.Currency}}</td></tr>
+        <tr><th>Packaging</th><td>{{printf "%.2f" .Result.Breakdown.PackagingCost}} {{.Currency}}</td></tr>
+        <tr><th>Shipping</th><td>{{printf "%.2f" .Result.Breakdown.ShippingCost}} {{.Currency}}</td></tr>
+        <tr><th>Margen</th><td>{{printf "%.2f" .Result.Breakdown.Margin}} {{.Currency}}</td></tr>
+        <tr><th>Impuesto</th><td>{{printf "%.2f" .Result.Breakdown.Tax}} {{.Currency}}</td></tr>
+        <tr><th>Total</th><td><strong>{{printf "%.2f" .Result.Totals.Total}} {{.Currency}}</strong></td></tr>
+      </tbody>
+    </table>
+  {{end}}
+{{end}}
