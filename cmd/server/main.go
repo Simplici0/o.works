@@ -8,6 +8,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"o.works/internal/config"
+	"o.works/internal/db"
 )
 
 type server struct {
@@ -16,6 +17,12 @@ type server struct {
 
 func main() {
 	cfg := config.Load()
+
+	database, err := db.Open(cfg.DBPath)
+	if err != nil {
+		log.Fatalf("failed to open database: %v", err)
+	}
+	defer database.Close()
 
 	templates, err := template.ParseFiles(
 		"web/templates/layout.html",
