@@ -9,6 +9,7 @@ import (
 
 	"github.com/Simplici0/o.works/internal/config"
 	"github.com/Simplici0/o.works/internal/db"
+	"github.com/Simplici0/o.works/internal/migrations"
 )
 
 type server struct {
@@ -23,6 +24,12 @@ func main() {
 		log.Fatalf("failed to open database: %v", err)
 	}
 	defer database.Close()
+
+	if cfg.IsDev() {
+		if err := migrations.Up(database, "migrations"); err != nil {
+			log.Fatalf("failed to run database migrations: %v", err)
+		}
+	}
 
 	templates, err := template.ParseFiles(
 		"web/templates/layout.html",
