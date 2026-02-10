@@ -119,9 +119,33 @@ type quoteViewData struct {
 }
 
 type quoteListItem struct {
+	ID        int64
 	CreatedAt string
 	Title     string
 	Total     float64
+}
+
+type quoteDetailItem struct {
+	MaterialName string
+	Grams        float64
+	PrintMinutes float64
+	LaborMinutes float64
+	Quantity     float64
+}
+
+type quoteDetailViewData struct {
+	ID            int64
+	CreatedAt     string
+	Title         string
+	Notes         string
+	Currency      string
+	WastePercent  float64
+	MarginPercent float64
+	TaxEnabled    bool
+	TaxPercent    float64
+	Item          quoteDetailItem
+	Breakdown     pricing.Breakdown
+	Totals        pricing.Totals
 }
 
 type quotesViewData struct {
@@ -176,6 +200,8 @@ func main() {
 	r.Get("/quote", srv.handleQuoteForm)
 	r.Post("/quote/calc", srv.handleQuoteCalc)
 	r.Get("/quotes", srv.handleQuotesList)
+	r.Get("/quotes/{id}", srv.handleQuoteDetail)
+	r.Get("/quotes/{id}/text", srv.handleQuoteText)
 
 	addr := ":" + cfg.Port
 	log.Printf("listening on %s", addr)
@@ -647,10 +673,52 @@ func (s *server) handleQuotesList(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *server) handleQuoteDetail(w http.ResponseWriter, r *http.Request) {
+	quoteID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || quoteID <= 0 {
+		http.Error(w, "invalid quote id", http.StatusBadRequest)
+		return
+	}
+
+	detail, err := s.getQuoteDetail(quoteID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.NotFound(w, r)
+			return
+		}
+		http.Error(w, "failed to load quote", http.StatusInternalServerError)
+		return
+	}
+
+	s.renderTemplate(w, "quote_detail.html", detail)
+}
+
+func (s *server) handleQuoteText(w http.ResponseWriter, r *http.Request) {
+	quoteID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || quoteID <= 0 {
+		http.Error(w, "invalid quote id", http.StatusBadRequest)
+		return
+	}
+
+	detail, err := s.getQuoteDetail(quoteID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.NotFound(w, r)
+			return
+		}
+		http.Error(w, "failed to load quote", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	_, _ = w.Write([]byte(buildQuoteText(detail)))
+}
+
 func (s *server) listQuotes(query string) ([]quoteListItem, error) {
 	search := "%" + query + "%"
 	rows, err := s.db.Query(`
 		SELECT
+			id,
 			created_at,
 			COALESCE(title, ''),
 			totals_json
@@ -667,7 +735,7 @@ func (s *server) listQuotes(query string) ([]quoteListItem, error) {
 	for rows.Next() {
 		var item quoteListItem
 		var totalsJSON string
-		if err := rows.Scan(&item.CreatedAt, &item.Title, &totalsJSON); err != nil {
+		if err := rows.Scan(&item.ID, &item.CreatedAt, &item.Title, &totalsJSON); err != nil {
 			return nil, err
 		}
 		item.Total = extractTotalFromJSON(totalsJSON)
@@ -679,6 +747,168 @@ func (s *server) listQuotes(query string) ([]quoteListItem, error) {
 	}
 
 	return quotes, nil
+}
+
+func (s *server) getQuoteDetail(quoteID int64) (quoteDetailViewData, error) {
+	var (
+		detail        quoteDetailViewData
+		breakdownJSON string
+		totalsJSON    string
+	)
+
+	err := s.db.QueryRow(`
+		SELECT
+			q.id,
+			q.created_at,
+			COALESCE(q.title, ''),
+			COALESCE(q.notes, ''),
+			q.waste_percent,
+			q.margin_percent,
+			q.tax_enabled,
+			q.tax_percent_snapshot,
+			q.breakdown_json,
+			q.totals_json,
+			COALESCE(m.name, ''),
+			COALESCE(qi.grams, 0),
+			COALESCE(qi.print_minutes, 0),
+			COALESCE(qi.labor_minutes, 0),
+			COALESCE(qi.quantity, 0)
+		FROM quotes q
+		LEFT JOIN quote_items qi ON qi.quote_id = q.id
+		LEFT JOIN materials m ON m.id = qi.material_id
+		WHERE q.id = ?
+		ORDER BY qi.id ASC
+		LIMIT 1
+	`, quoteID).Scan(
+		&detail.ID,
+		&detail.CreatedAt,
+		&detail.Title,
+		&detail.Notes,
+		&detail.WastePercent,
+		&detail.MarginPercent,
+		&detail.TaxEnabled,
+		&detail.TaxPercent,
+		&breakdownJSON,
+		&totalsJSON,
+		&detail.Item.MaterialName,
+		&detail.Item.Grams,
+		&detail.Item.PrintMinutes,
+		&detail.Item.LaborMinutes,
+		&detail.Item.Quantity,
+	)
+	if err != nil {
+		return quoteDetailViewData{}, err
+	}
+
+	detail.Currency = "COP"
+	detail.Breakdown = extractBreakdownFromJSON(breakdownJSON)
+	detail.Totals = pricing.Totals{Total: extractTotalFromJSON(totalsJSON)}
+
+	return detail, nil
+}
+
+func extractBreakdownFromJSON(raw string) pricing.Breakdown {
+	values := parseJSONNumberMap(raw)
+	return pricing.Breakdown{
+		MaterialCost:     pickFloat(values, "material_cost", "material"),
+		MachineCost:      pickFloat(values, "machine_cost", "machine"),
+		LaborCost:        pickFloat(values, "labor_cost", "labor"),
+		Subtotal:         pickFloat(values, "subtotal"),
+		Overhead:         pickFloat(values, "overhead"),
+		FailureInsurance: pickFloat(values, "failure_insurance", "failure"),
+		PackagingCost:    pickFloat(values, "packaging_cost", "packaging"),
+		ShippingCost:     pickFloat(values, "shipping_cost", "shipping"),
+		Margin:           pickFloat(values, "margin"),
+		Tax:              pickFloat(values, "tax"),
+	}
+}
+
+func parseJSONNumberMap(raw string) map[string]float64 {
+	values := map[string]float64{}
+	decoder := map[string]any{}
+	if err := json.Unmarshal([]byte(raw), &decoder); err != nil {
+		return values
+	}
+	collectNumericValues(values, "", decoder)
+	return values
+}
+
+func collectNumericValues(values map[string]float64, prefix string, source map[string]any) {
+	for key, val := range source {
+		normalizedKey := normalizeJSONKey(key)
+		if prefix != "" {
+			normalizedKey = prefix + "_" + normalizedKey
+		}
+
+		switch typedVal := val.(type) {
+		case float64:
+			values[normalizedKey] = typedVal
+		case map[string]any:
+			collectNumericValues(values, normalizedKey, typedVal)
+		}
+	}
+}
+
+func normalizeJSONKey(key string) string {
+	key = strings.TrimSpace(strings.ToLower(key))
+	key = strings.ReplaceAll(key, "-", "_")
+	return key
+}
+
+func pickFloat(values map[string]float64, keys ...string) float64 {
+	for _, key := range keys {
+		if value, ok := values[normalizeJSONKey(key)]; ok {
+			return value
+		}
+		if value, ok := values["breakdown_"+normalizeJSONKey(key)]; ok {
+			return value
+		}
+	}
+	return 0
+}
+
+func buildQuoteText(detail quoteDetailViewData) string {
+	title := detail.Title
+	if title == "" {
+		title = fmt.Sprintf("Cotización #%d", detail.ID)
+	}
+
+	lines := []string{
+		title,
+		fmt.Sprintf("Fecha: %s", detail.CreatedAt),
+		"",
+		fmt.Sprintf("Total: %.2f %s", detail.Totals.Total, detail.Currency),
+		"",
+		"Desglose resumido:",
+		fmt.Sprintf("- Material: %.2f %s", detail.Breakdown.MaterialCost, detail.Currency),
+		fmt.Sprintf("- Máquina: %.2f %s", detail.Breakdown.MachineCost, detail.Currency),
+		fmt.Sprintf("- Mano de obra: %.2f %s", detail.Breakdown.LaborCost, detail.Currency),
+		fmt.Sprintf("- Subtotal: %.2f %s", detail.Breakdown.Subtotal, detail.Currency),
+		fmt.Sprintf("- Overhead: %.2f %s", detail.Breakdown.Overhead, detail.Currency),
+		fmt.Sprintf("- Seguro de falla: %.2f %s", detail.Breakdown.FailureInsurance, detail.Currency),
+		fmt.Sprintf("- Packaging: %.2f %s", detail.Breakdown.PackagingCost, detail.Currency),
+		fmt.Sprintf("- Shipping: %.2f %s", detail.Breakdown.ShippingCost, detail.Currency),
+		fmt.Sprintf("- Margen: %.2f %s", detail.Breakdown.Margin, detail.Currency),
+		fmt.Sprintf("- Impuesto: %.2f %s", detail.Breakdown.Tax, detail.Currency),
+		"",
+		"Supuestos:",
+		fmt.Sprintf("- Merma: %.2f%%", detail.WastePercent),
+		fmt.Sprintf("- Margen: %.2f%%", detail.MarginPercent),
+		fmt.Sprintf("- Impuesto: %s (%.2f%%)", map[bool]string{true: "incluido", false: "no incluido"}[detail.TaxEnabled], detail.TaxPercent),
+		"",
+		"Datos del item:",
+		fmt.Sprintf("- Material: %s", detail.Item.MaterialName),
+		fmt.Sprintf("- Gramos: %.2f", detail.Item.Grams),
+		fmt.Sprintf("- Tiempo impresión: %.2f min", detail.Item.PrintMinutes),
+		fmt.Sprintf("- Mano de obra: %.2f min", detail.Item.LaborMinutes),
+		fmt.Sprintf("- Cantidad: %.0f", detail.Item.Quantity),
+	}
+
+	if detail.Notes != "" {
+		lines = append(lines, "", "Notas:", detail.Notes)
+	}
+
+	return strings.Join(lines, "\n")
 }
 
 func extractTotalFromJSON(totalsJSON string) float64 {
