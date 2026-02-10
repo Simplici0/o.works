@@ -16,6 +16,7 @@ import (
 	"github.com/Simplici0/o.works/internal/config"
 	"github.com/Simplici0/o.works/internal/db"
 	"github.com/Simplici0/o.works/internal/migrations"
+	"github.com/Simplici0/o.works/internal/pricing"
 )
 
 type server struct {
@@ -88,6 +89,34 @@ type packagingViewData struct {
 	PackagingRates []packagingRate
 }
 
+type quoteFormValues struct {
+	MaterialID    int64
+	ShippingID    int64
+	PackagingID   int64
+	Grams         float64
+	PrintMinutes  float64
+	LaborMinutes  float64
+	Quantity      float64
+	WastePercent  float64
+	MarginPercent float64
+	TaxEnabled    bool
+	TaxPercent    float64
+}
+
+type quoteBreakdownViewData struct {
+	ErrorMessage string
+	Currency     string
+	Result       pricing.Result
+}
+
+type quoteViewData struct {
+	Materials      []material
+	ShippingRates  []shippingRate
+	PackagingRates []packagingRate
+	Form           quoteFormValues
+	Breakdown      quoteBreakdownViewData
+}
+
 func main() {
 	cfg := config.Load()
 
@@ -131,6 +160,8 @@ func main() {
 	r.Get("/admin/packaging", srv.handleAdminPackagingForm)
 	r.Post("/admin/packaging", srv.handleAdminPackagingCreate)
 	r.Post("/admin/packaging/{id}", srv.handleAdminPackagingUpdate)
+	r.Get("/quote", srv.handleQuoteForm)
+	r.Post("/quote/calc", srv.handleQuoteCalc)
 
 	addr := ":" + cfg.Port
 	log.Printf("listening on %s", addr)
@@ -492,6 +523,102 @@ func (s *server) handleAdminPackagingUpdate(w http.ResponseWriter, r *http.Reque
 	http.Redirect(w, r, "/admin/packaging?success=Tarifa+de+empaque+actualizada+correctamente", http.StatusSeeOther)
 }
 
+func (s *server) handleQuoteForm(w http.ResponseWriter, r *http.Request) {
+	materials, err := s.listActiveMaterials()
+	if err != nil {
+		http.Error(w, "failed to load materials", http.StatusInternalServerError)
+		return
+	}
+	shippingRates, err := s.listActiveShippingRates()
+	if err != nil {
+		http.Error(w, "failed to load shipping rates", http.StatusInternalServerError)
+		return
+	}
+	packagingRates, err := s.listActivePackagingRates()
+	if err != nil {
+		http.Error(w, "failed to load packaging rates", http.StatusInternalServerError)
+		return
+	}
+
+	values := quoteFormValues{Quantity: 1}
+	if len(materials) > 0 {
+		values.MaterialID = materials[0].ID
+	}
+
+	s.renderTemplate(w, "quote.html", quoteViewData{
+		Materials:      materials,
+		ShippingRates:  shippingRates,
+		PackagingRates: packagingRates,
+		Form:           values,
+		Breakdown: quoteBreakdownViewData{
+			ErrorMessage: "Completa los campos para calcular.",
+			Currency:     "COP",
+		},
+	})
+}
+
+func (s *server) handleQuoteCalc(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		s.renderBreakdownPartial(w, quoteBreakdownViewData{ErrorMessage: "Formulario inválido."})
+		return
+	}
+
+	values, err := parseQuoteFormValues(r)
+	if err != nil {
+		s.renderBreakdownPartial(w, quoteBreakdownViewData{ErrorMessage: err.Error()})
+		return
+	}
+
+	rates, err := s.getRateConfig()
+	if err != nil {
+		s.renderBreakdownPartial(w, quoteBreakdownViewData{ErrorMessage: "No se pudo cargar la configuración de tarifas."})
+		return
+	}
+
+	selectedMaterial, err := s.getActiveMaterialByID(values.MaterialID)
+	if err != nil {
+		s.renderBreakdownPartial(w, quoteBreakdownViewData{ErrorMessage: err.Error()})
+		return
+	}
+
+	shippingCost, err := s.getOptionalActiveShippingCost(values.ShippingID)
+	if err != nil {
+		s.renderBreakdownPartial(w, quoteBreakdownViewData{ErrorMessage: err.Error()})
+		return
+	}
+
+	packagingCost, err := s.getOptionalActivePackagingCost(values.PackagingID)
+	if err != nil {
+		s.renderBreakdownPartial(w, quoteBreakdownViewData{ErrorMessage: err.Error()})
+		return
+	}
+
+	result := pricing.Calculate(pricing.ItemInput{
+		Grams:        values.Grams,
+		PrintMinutes: values.PrintMinutes,
+		LaborMinutes: values.LaborMinutes,
+		Quantity:     values.Quantity,
+		CostPerKg:    selectedMaterial.CostPerKg,
+	}, pricing.GlobalInput{
+		MachineHourlyRate:  rates.MachineHourlyRate,
+		LaborPerMinute:     rates.LaborPerMinute,
+		OverheadFixed:      rates.OverheadFixed,
+		OverheadPercent:    rates.OverheadPercent,
+		FailureRatePercent: rates.FailureRatePercent,
+		WastePercent:       values.WastePercent,
+		MarginPercent:      values.MarginPercent,
+		TaxEnabled:         values.TaxEnabled,
+		TaxPercent:         values.TaxPercent,
+		PackagingCost:      packagingCost,
+		ShippingCost:       shippingCost,
+	})
+
+	s.renderBreakdownPartial(w, quoteBreakdownViewData{
+		Currency: rates.Currency,
+		Result:   result,
+	})
+}
+
 func parseRateConfigForm(r *http.Request) (rateConfig, error) {
 	rates := rateConfig{Currency: "COP"}
 
@@ -516,6 +643,65 @@ func parseRateConfigForm(r *http.Request) (rateConfig, error) {
 	}
 
 	return rates, nil
+}
+
+func parseQuoteFormValues(r *http.Request) (quoteFormValues, error) {
+	values := quoteFormValues{}
+
+	var err error
+	if values.MaterialID, err = parseRequiredID(r.FormValue("material_id"), "material_id"); err != nil {
+		return values, err
+	}
+	if values.ShippingID, err = parseOptionalID(r.FormValue("shipping_id")); err != nil {
+		return values, fmt.Errorf("shipping_id inválido")
+	}
+	if values.PackagingID, err = parseOptionalID(r.FormValue("packaging_id")); err != nil {
+		return values, fmt.Errorf("packaging_id inválido")
+	}
+	if values.Grams, err = parsePositiveFloat(r.FormValue("grams"), "grams"); err != nil {
+		return values, err
+	}
+	if values.PrintMinutes, err = parseNonNegativeFloat(r.FormValue("printMinutes"), "printMinutes"); err != nil {
+		return values, err
+	}
+	if values.LaborMinutes, err = parseNonNegativeFloat(r.FormValue("laborMinutes"), "laborMinutes"); err != nil {
+		return values, err
+	}
+	if values.Quantity, err = parsePositiveFloat(r.FormValue("quantity"), "quantity"); err != nil {
+		return values, err
+	}
+	if values.WastePercent, err = parsePercent(r.FormValue("wastePercent"), "wastePercent"); err != nil {
+		return values, err
+	}
+	if values.MarginPercent, err = parsePercent(r.FormValue("marginPercent"), "marginPercent"); err != nil {
+		return values, err
+	}
+
+	values.TaxEnabled = r.FormValue("taxEnabled") == "1"
+	if values.TaxPercent, err = parsePercent(r.FormValue("taxPercent"), "taxPercent"); err != nil {
+		return values, err
+	}
+
+	return values, nil
+}
+
+func parseRequiredID(raw, field string) (int64, error) {
+	value, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || value <= 0 {
+		return 0, fmt.Errorf("%s inválido", field)
+	}
+	return value, nil
+}
+
+func parseOptionalID(raw string) (int64, error) {
+	if strings.TrimSpace(raw) == "" {
+		return 0, nil
+	}
+	value, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || value <= 0 {
+		return 0, fmt.Errorf("id inválido")
+	}
+	return value, nil
 }
 
 func parseNonNegativeFloat(raw, field string) (float64, error) {
@@ -608,6 +794,20 @@ func (s *server) renderTemplate(w http.ResponseWriter, page string, data any) {
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := templates.ExecuteTemplate(w, "layout.html", data); err != nil {
+		http.Error(w, "failed to render template", http.StatusInternalServerError)
+		return
+	}
+}
+
+func (s *server) renderBreakdownPartial(w http.ResponseWriter, data quoteBreakdownViewData) {
+	tmpl, err := template.ParseFiles("web/templates/quote_breakdown_partial.html")
+	if err != nil {
+		http.Error(w, "failed to parse template", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := tmpl.Execute(w, data); err != nil {
 		http.Error(w, "failed to render template", http.StatusInternalServerError)
 		return
 	}
@@ -742,6 +942,49 @@ func (s *server) listMaterials() ([]material, error) {
 	return materials, nil
 }
 
+func (s *server) listActiveMaterials() ([]material, error) {
+	rows, err := s.db.Query(`
+		SELECT id, name, cost_per_kg, COALESCE(notes, ''), active
+		FROM materials
+		WHERE active = TRUE
+		ORDER BY name ASC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("query active materials: %w", err)
+	}
+	defer rows.Close()
+
+	materials := make([]material, 0)
+	for rows.Next() {
+		var m material
+		if err := rows.Scan(&m.ID, &m.Name, &m.CostPerKg, &m.Notes, &m.Active); err != nil {
+			return nil, fmt.Errorf("scan active material: %w", err)
+		}
+		materials = append(materials, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate active materials: %w", err)
+	}
+
+	return materials, nil
+}
+
+func (s *server) getActiveMaterialByID(id int64) (material, error) {
+	var m material
+	err := s.db.QueryRow(`
+		SELECT id, name, cost_per_kg, COALESCE(notes, ''), active
+		FROM materials
+		WHERE id = ? AND active = TRUE
+	`, id).Scan(&m.ID, &m.Name, &m.CostPerKg, &m.Notes, &m.Active)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return material{}, fmt.Errorf("material no encontrado o inactivo")
+		}
+		return material{}, fmt.Errorf("query material: %w", err)
+	}
+	return m, nil
+}
+
 func (s *server) listShippingRates() ([]shippingRate, error) {
 	rows, err := s.db.Query(`
 		SELECT id, scope, country, COALESCE(city, ''), flat_cost, COALESCE(notes, ''), active
@@ -769,6 +1012,50 @@ func (s *server) listShippingRates() ([]shippingRate, error) {
 	return shippingRates, nil
 }
 
+func (s *server) listActiveShippingRates() ([]shippingRate, error) {
+	rows, err := s.db.Query(`
+		SELECT id, scope, country, COALESCE(city, ''), flat_cost, COALESCE(notes, ''), active
+		FROM shipping_rates
+		WHERE active = TRUE
+		ORDER BY id DESC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("query active shipping rates: %w", err)
+	}
+	defer rows.Close()
+
+	shippingRates := make([]shippingRate, 0)
+	for rows.Next() {
+		var rate shippingRate
+		if err := rows.Scan(&rate.ID, &rate.Scope, &rate.Country, &rate.City, &rate.FlatCost, &rate.Notes, &rate.Active); err != nil {
+			return nil, fmt.Errorf("scan active shipping rate: %w", err)
+		}
+		shippingRates = append(shippingRates, rate)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate active shipping rates: %w", err)
+	}
+
+	return shippingRates, nil
+}
+
+func (s *server) getOptionalActiveShippingCost(id int64) (float64, error) {
+	if id == 0 {
+		return 0, nil
+	}
+
+	var cost float64
+	err := s.db.QueryRow(`SELECT flat_cost FROM shipping_rates WHERE id = ? AND active = TRUE`, id).Scan(&cost)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, fmt.Errorf("shipping no encontrado o inactivo")
+		}
+		return 0, fmt.Errorf("query shipping: %w", err)
+	}
+
+	return cost, nil
+}
+
 func (s *server) listPackagingRates() ([]packagingRate, error) {
 	rows, err := s.db.Query(`
 		SELECT id, name, flat_cost, COALESCE(notes, ''), active
@@ -794,4 +1081,48 @@ func (s *server) listPackagingRates() ([]packagingRate, error) {
 	}
 
 	return packagingRates, nil
+}
+
+func (s *server) listActivePackagingRates() ([]packagingRate, error) {
+	rows, err := s.db.Query(`
+		SELECT id, name, flat_cost, COALESCE(notes, ''), active
+		FROM packaging_rates
+		WHERE active = TRUE
+		ORDER BY id DESC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("query active packaging rates: %w", err)
+	}
+	defer rows.Close()
+
+	packagingRates := make([]packagingRate, 0)
+	for rows.Next() {
+		var rate packagingRate
+		if err := rows.Scan(&rate.ID, &rate.Name, &rate.FlatCost, &rate.Notes, &rate.Active); err != nil {
+			return nil, fmt.Errorf("scan active packaging rate: %w", err)
+		}
+		packagingRates = append(packagingRates, rate)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate active packaging rates: %w", err)
+	}
+
+	return packagingRates, nil
+}
+
+func (s *server) getOptionalActivePackagingCost(id int64) (float64, error) {
+	if id == 0 {
+		return 0, nil
+	}
+
+	var cost float64
+	err := s.db.QueryRow(`SELECT flat_cost FROM packaging_rates WHERE id = ? AND active = TRUE`, id).Scan(&cost)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, fmt.Errorf("packaging no encontrado o inactivo")
+		}
+		return 0, fmt.Errorf("query packaging: %w", err)
+	}
+
+	return cost, nil
 }

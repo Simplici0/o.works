@@ -1,0 +1,19 @@
+{{if .ErrorMessage}}
+  <p>{{.ErrorMessage}}</p>
+{{else}}
+  <table border="1" cellpadding="6">
+    <tbody>
+      <tr><th>Material</th><td>{{printf "%.2f" .Result.Breakdown.MaterialCost}} {{.Currency}}</td></tr>
+      <tr><th>Máquina</th><td>{{printf "%.2f" .Result.Breakdown.MachineCost}} {{.Currency}}</td></tr>
+      <tr><th>Mano de obra</th><td>{{printf "%.2f" .Result.Breakdown.LaborCost}} {{.Currency}}</td></tr>
+      <tr><th>Subtotal</th><td>{{printf "%.2f" .Result.Breakdown.Subtotal}} {{.Currency}}</td></tr>
+      <tr><th>Overhead</th><td>{{printf "%.2f" .Result.Breakdown.Overhead}} {{.Currency}}</td></tr>
+      <tr><th>Seguro de falla</th><td>{{printf "%.2f" .Result.Breakdown.FailureInsurance}} {{.Currency}}</td></tr>
+      <tr><th>Packaging</th><td>{{printf "%.2f" .Result.Breakdown.PackagingCost}} {{.Currency}}</td></tr>
+      <tr><th>Shipping</th><td>{{printf "%.2f" .Result.Breakdown.ShippingCost}} {{.Currency}}</td></tr>
+      <tr><th>Margen</th><td>{{printf "%.2f" .Result.Breakdown.Margin}} {{.Currency}}</td></tr>
+      <tr><th>Impuesto</th><td>{{printf "%.2f" .Result.Breakdown.Tax}} {{.Currency}}</td></tr>
+      <tr><th>Total</th><td><strong>{{printf "%.2f" .Result.Totals.Total}} {{.Currency}}</strong></td></tr>
+    </tbody>
+  </table>
+{{end}}
