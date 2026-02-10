@@ -1,0 +1,24 @@
+{{define "content"}}
+  <main>
+    <h1>Cotización #{{.ID}}</h1>
+    <p><a href="/quotes">Volver al historial</a></p>
+
+    <p><strong>Fecha:</strong> {{.CreatedAt}}</p>
+    {{if .Title}}<p><strong>Título:</strong> {{.Title}}</p>{{end}}
+    {{if .Notes}}<p><strong>Notas:</strong> {{.Notes}}</p>{{end}}
+
+    <h2>Snapshot de parámetros</h2>
+    <ul>
+      <li>waste_percent: {{printf "%.2f" .WastePercent}}</li>
+      <li>margin_percent: {{printf "%.2f" .MarginPercent}}</li>
+      <li>tax_enabled: {{.TaxEnabled}}</li>
+      <li>tax_percent_snapshot: {{printf "%.2f" .TaxPercentSnapshot}}</li>
+    </ul>
+
+    <h2>totals_json (snapshot)</h2>
+    <pre>{{.TotalsJSON}}</pre>
+
+    <h2>breakdown_json (snapshot)</h2>
+    <pre>{{.BreakdownJSON}}</pre>
+  </main>
+{{end}}

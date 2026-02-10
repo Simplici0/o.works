@@ -1,0 +1,33 @@
+{{define "content"}}
+  <main>
+    <h1>Historial de cotizaciones</h1>
+    <p><a href="/">Volver</a></p>
+
+    {{if not .Quotes}}
+      <p>No hay cotizaciones guardadas.</p>
+    {{else}}
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Fecha</th>
+            <th>Título</th>
+            <th>Total</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {{range .Quotes}}
+            <tr>
+              <td>{{.ID}}</td>
+              <td>{{.CreatedAt}}</td>
+              <td>{{.Title}}</td>
+              <td>{{printf "%.2f" .Total}}</td>
+              <td><a href="/quotes/{{.ID}}">Ver detalle</a></td>
+            </tr>
+          {{end}}
+        </tbody>
+      </table>
+    {{end}}
+  </main>
+{{end}}
