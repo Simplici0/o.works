@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
@@ -88,6 +89,18 @@ type packagingViewData struct {
 	PackagingRates []packagingRate
 }
 
+type quoteListItem struct {
+	CreatedAt string
+	Title     string
+	Total     float64
+}
+
+type quotesViewData struct {
+	baseViewData
+	Query  string
+	Quotes []quoteListItem
+}
+
 func main() {
 	cfg := config.Load()
 
@@ -131,6 +144,7 @@ func main() {
 	r.Get("/admin/packaging", srv.handleAdminPackagingForm)
 	r.Post("/admin/packaging", srv.handleAdminPackagingCreate)
 	r.Post("/admin/packaging/{id}", srv.handleAdminPackagingUpdate)
+	r.Get("/quotes", srv.handleQuotesList)
 
 	addr := ":" + cfg.Port
 	log.Printf("listening on %s", addr)
@@ -490,6 +504,69 @@ func (s *server) handleAdminPackagingUpdate(w http.ResponseWriter, r *http.Reque
 	}
 
 	http.Redirect(w, r, "/admin/packaging?success=Tarifa+de+empaque+actualizada+correctamente", http.StatusSeeOther)
+}
+
+func (s *server) handleQuotesList(w http.ResponseWriter, r *http.Request) {
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	quotes, err := s.listQuotes(query)
+	if err != nil {
+		http.Error(w, "failed to load quotes", http.StatusInternalServerError)
+		return
+	}
+
+	s.renderTemplate(w, "quotes.html", quotesViewData{
+		Query:  query,
+		Quotes: quotes,
+	})
+}
+
+func (s *server) listQuotes(query string) ([]quoteListItem, error) {
+	search := "%" + query + "%"
+	rows, err := s.db.Query(`
+		SELECT
+			created_at,
+			COALESCE(title, ''),
+			totals_json
+		FROM quotes
+		WHERE (? = '' OR COALESCE(title, '') LIKE ? OR COALESCE(notes, '') LIKE ?)
+		ORDER BY datetime(created_at) DESC, id DESC
+	`, query, search, search)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	quotes := make([]quoteListItem, 0)
+	for rows.Next() {
+		var item quoteListItem
+		var totalsJSON string
+		if err := rows.Scan(&item.CreatedAt, &item.Title, &totalsJSON); err != nil {
+			return nil, err
+		}
+		item.Total = extractTotalFromJSON(totalsJSON)
+		quotes = append(quotes, item)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return quotes, nil
+}
+
+func extractTotalFromJSON(totalsJSON string) float64 {
+	var values map[string]float64
+	if err := json.Unmarshal([]byte(totalsJSON), &values); err != nil {
+		return 0
+	}
+
+	for _, key := range []string{"total", "grand_total", "final_total"} {
+		if total, ok := values[key]; ok {
+			return total
+		}
+	}
+
+	return 0
 }
 
 func parseRateConfigForm(r *http.Request) (rateConfig, error) {
