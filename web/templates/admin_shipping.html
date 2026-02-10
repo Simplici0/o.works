@@ -1,0 +1,78 @@
+{{define "content"}}
+  <main>
+    <h1>Shipping rates</h1>
+
+    {{if .ErrorMessage}}
+      <p style="color: #b00020;">{{.ErrorMessage}}</p>
+    {{end}}
+    {{if .SuccessMessage}}
+      <p style="color: #0a7f2e;">{{.SuccessMessage}}</p>
+    {{end}}
+
+    <h2>Nueva tarifa</h2>
+    <form method="post" action="/admin/shipping">
+      <label for="new_scope">scope</label>
+      <select id="new_scope" name="scope" required>
+        <option value="CO">CO</option>
+        <option value="INTL">INTL</option>
+      </select>
+
+      <label for="new_country">country</label>
+      <input id="new_country" name="country" type="text" required />
+
+      <label for="new_city">city</label>
+      <input id="new_city" name="city" type="text" />
+
+      <label for="new_flat_cost">flat_cost</label>
+      <input id="new_flat_cost" name="flat_cost" type="number" step="any" min="0" required />
+
+      <label for="new_notes">notes</label>
+      <input id="new_notes" name="notes" type="text" />
+
+      <input type="hidden" name="active" value="0" />
+      <label for="new_active">
+        <input id="new_active" name="active" type="checkbox" value="1" checked /> activo
+      </label>
+
+      <button type="submit">Crear</button>
+    </form>
+
+    <h2>Lista (activos/inactivos)</h2>
+    {{if .ShippingRates}}
+      {{range .ShippingRates}}
+        <form method="post" action="/admin/shipping/{{.ID}}" style="margin-bottom: 1rem; border: 1px solid #ddd; padding: 0.75rem;">
+          <p><strong>ID:</strong> {{.ID}}</p>
+
+          <label for="scope_{{.ID}}">scope</label>
+          <select id="scope_{{.ID}}" name="scope" required>
+            <option value="CO" {{if eq .Scope "CO"}}selected{{end}}>CO</option>
+            <option value="INTL" {{if eq .Scope "INTL"}}selected{{end}}>INTL</option>
+          </select>
+
+          <label for="country_{{.ID}}">country</label>
+          <input id="country_{{.ID}}" name="country" type="text" value="{{.Country}}" required />
+
+          <label for="city_{{.ID}}">city</label>
+          <input id="city_{{.ID}}" name="city" type="text" value="{{.City}}" />
+
+          <label for="flat_cost_{{.ID}}">flat_cost</label>
+          <input id="flat_cost_{{.ID}}" name="flat_cost" type="number" step="any" min="0" value="{{.FlatCost}}" required />
+
+          <label for="notes_{{.ID}}">notes</label>
+          <input id="notes_{{.ID}}" name="notes" type="text" value="{{.Notes}}" />
+
+          <input type="hidden" name="active" value="0" />
+          <label for="active_{{.ID}}">
+            <input id="active_{{.ID}}" name="active" type="checkbox" value="1" {{if .Active}}checked{{end}} /> activo
+          </label>
+
+          <button type="submit">Editar</button>
+        </form>
+      {{end}}
+    {{else}}
+      <p>No hay shipping rates creadas.</p>
+    {{end}}
+
+    <p><a href="/">Volver al inicio</a></p>
+  </main>
+{{end}}

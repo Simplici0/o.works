@@ -60,6 +60,21 @@ type materialsViewData struct {
 	Materials []material
 }
 
+type shippingRate struct {
+	ID       int64
+	Scope    string
+	Country  string
+	City     string
+	FlatCost float64
+	Notes    string
+	Active   bool
+}
+
+type shippingViewData struct {
+	baseViewData
+	ShippingRates []shippingRate
+}
+
 func main() {
 	cfg := config.Load()
 
@@ -97,6 +112,9 @@ func main() {
 	r.Get("/admin/materials", srv.handleAdminMaterialsForm)
 	r.Post("/admin/materials", srv.handleAdminMaterialsCreate)
 	r.Post("/admin/materials/{id}", srv.handleAdminMaterialsUpdate)
+	r.Get("/admin/shipping", srv.handleAdminShippingForm)
+	r.Post("/admin/shipping", srv.handleAdminShippingCreate)
+	r.Post("/admin/shipping/{id}", srv.handleAdminShippingUpdate)
 
 	addr := ":" + cfg.Port
 	log.Printf("listening on %s", addr)
@@ -284,6 +302,94 @@ func (s *server) handleAdminMaterialsUpdate(w http.ResponseWriter, r *http.Reque
 	http.Redirect(w, r, "/admin/materials?success=Material+actualizado+correctamente", http.StatusSeeOther)
 }
 
+func (s *server) handleAdminShippingForm(w http.ResponseWriter, r *http.Request) {
+	shippingRates, err := s.listShippingRates()
+	if err != nil {
+		http.Error(w, "failed to load shipping rates", http.StatusInternalServerError)
+		return
+	}
+
+	s.renderTemplate(w, "admin_shipping.html", shippingViewData{
+		baseViewData: baseViewData{
+			ErrorMessage:   r.URL.Query().Get("error"),
+			SuccessMessage: r.URL.Query().Get("success"),
+		},
+		ShippingRates: shippingRates,
+	})
+}
+
+func (s *server) handleAdminShippingCreate(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+
+	rate, err := parseShippingRateForm(r)
+	if err != nil {
+		http.Redirect(w, r, "/admin/shipping?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
+
+	_, err = s.db.Exec(`
+		INSERT INTO shipping_rates (scope, country, city, flat_cost, notes, active)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, rate.Scope, rate.Country, rate.City, rate.FlatCost, rate.Notes, rate.Active)
+	if err != nil {
+		http.Error(w, "failed to create shipping rate", http.StatusInternalServerError)
+		return
+	}
+
+	http.Redirect(w, r, "/admin/shipping?success=Tarifa+de+env%C3%ADo+creada+correctamente", http.StatusSeeOther)
+}
+
+func (s *server) handleAdminShippingUpdate(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || id <= 0 {
+		http.Error(w, "invalid shipping rate id", http.StatusBadRequest)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+
+	rate, err := parseShippingRateForm(r)
+	if err != nil {
+		http.Redirect(w, r, "/admin/shipping?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
+
+	result, err := s.db.Exec(`
+		UPDATE shipping_rates
+		SET
+			scope = ?,
+			country = ?,
+			city = ?,
+			flat_cost = ?,
+			notes = ?,
+			active = ?,
+			updated_at = CURRENT_TIMESTAMP
+		WHERE id = ?
+	`, rate.Scope, rate.Country, rate.City, rate.FlatCost, rate.Notes, rate.Active, id)
+	if err != nil {
+		http.Error(w, "failed to update shipping rate", http.StatusInternalServerError)
+		return
+	}
+
+	affected, err := result.RowsAffected()
+	if err != nil {
+		http.Error(w, "failed to update shipping rate", http.StatusInternalServerError)
+		return
+	}
+	if affected == 0 {
+		http.NotFound(w, r)
+		return
+	}
+
+	http.Redirect(w, r, "/admin/shipping?success=Tarifa+de+env%C3%ADo+actualizada+correctamente", http.StatusSeeOther)
+}
+
 func parseRateConfigForm(r *http.Request) (rateConfig, error) {
 	rates := rateConfig{Currency: "COP"}
 
@@ -341,6 +447,31 @@ func parsePositiveFloat(raw, field string) (float64, error) {
 		return 0, fmt.Errorf("%s debe ser mayor a 0", field)
 	}
 	return value, nil
+}
+
+func parseShippingRateForm(r *http.Request) (shippingRate, error) {
+	rate := shippingRate{
+		Scope:   strings.TrimSpace(r.FormValue("scope")),
+		Country: strings.TrimSpace(r.FormValue("country")),
+		City:    strings.TrimSpace(r.FormValue("city")),
+		Notes:   strings.TrimSpace(r.FormValue("notes")),
+		Active:  r.FormValue("active") == "1",
+	}
+
+	if rate.Scope != "CO" && rate.Scope != "INTL" {
+		return rate, fmt.Errorf("scope debe ser CO o INTL")
+	}
+	if rate.Country == "" {
+		return rate, fmt.Errorf("country es requerido")
+	}
+
+	var err error
+	rate.FlatCost, err = parseNonNegativeFloat(r.FormValue("flat_cost"), "flat_cost")
+	if err != nil {
+		return rate, err
+	}
+
+	return rate, nil
 }
 
 func (s *server) renderTemplate(w http.ResponseWriter, page string, data any) {
@@ -487,4 +618,31 @@ func (s *server) listMaterials() ([]material, error) {
 	}
 
 	return materials, nil
+}
+
+func (s *server) listShippingRates() ([]shippingRate, error) {
+	rows, err := s.db.Query(`
+		SELECT id, scope, country, COALESCE(city, ''), flat_cost, COALESCE(notes, ''), active
+		FROM shipping_rates
+		ORDER BY id DESC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("query shipping rates: %w", err)
+	}
+	defer rows.Close()
+
+	shippingRates := make([]shippingRate, 0)
+	for rows.Next() {
+		var rate shippingRate
+		if err := rows.Scan(&rate.ID, &rate.Scope, &rate.Country, &rate.City, &rate.FlatCost, &rate.Notes, &rate.Active); err != nil {
+			return nil, fmt.Errorf("scan shipping rate: %w", err)
+		}
+		shippingRates = append(shippingRates, rate)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate shipping rates: %w", err)
+	}
+
+	return shippingRates, nil
 }
