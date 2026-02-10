@@ -4,8 +4,25 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>3D Quote</title>
+    <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body>
-    {{block "content" .}}{{end}}
+    <header class="app-header">
+      <a class="brand" href="/">
+        <img class="brand-logo" src="/static/logo.svg" alt="ō" />
+        <span>ō works</span>
+      </a>
+      <nav class="main-nav" aria-label="Main navigation">
+        <a href="/quote">/quote</a>
+        <a href="/quotes">/quotes</a>
+        <a href="/admin/rates">/admin/rates</a>
+        <a href="/admin/materials">/admin/materials</a>
+        <a href="/admin/shipping">/admin/shipping</a>
+        <a href="/admin/packaging">/admin/packaging</a>
+      </nav>
+    </header>
+    <div class="container">
+      {{block "content" .}}{{end}}
+    </div>
   </body>
 </html>
