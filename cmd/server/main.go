@@ -75,6 +75,19 @@ type shippingViewData struct {
 	ShippingRates []shippingRate
 }
 
+type packagingRate struct {
+	ID       int64
+	Name     string
+	FlatCost float64
+	Notes    string
+	Active   bool
+}
+
+type packagingViewData struct {
+	baseViewData
+	PackagingRates []packagingRate
+}
+
 func main() {
 	cfg := config.Load()
 
@@ -115,6 +128,9 @@ func main() {
 	r.Get("/admin/shipping", srv.handleAdminShippingForm)
 	r.Post("/admin/shipping", srv.handleAdminShippingCreate)
 	r.Post("/admin/shipping/{id}", srv.handleAdminShippingUpdate)
+	r.Get("/admin/packaging", srv.handleAdminPackagingForm)
+	r.Post("/admin/packaging", srv.handleAdminPackagingCreate)
+	r.Post("/admin/packaging/{id}", srv.handleAdminPackagingUpdate)
 
 	addr := ":" + cfg.Port
 	log.Printf("listening on %s", addr)
@@ -390,6 +406,92 @@ func (s *server) handleAdminShippingUpdate(w http.ResponseWriter, r *http.Reques
 	http.Redirect(w, r, "/admin/shipping?success=Tarifa+de+env%C3%ADo+actualizada+correctamente", http.StatusSeeOther)
 }
 
+func (s *server) handleAdminPackagingForm(w http.ResponseWriter, r *http.Request) {
+	packagingRates, err := s.listPackagingRates()
+	if err != nil {
+		http.Error(w, "failed to load packaging rates", http.StatusInternalServerError)
+		return
+	}
+
+	s.renderTemplate(w, "admin_packaging.html", packagingViewData{
+		baseViewData: baseViewData{
+			ErrorMessage:   r.URL.Query().Get("error"),
+			SuccessMessage: r.URL.Query().Get("success"),
+		},
+		PackagingRates: packagingRates,
+	})
+}
+
+func (s *server) handleAdminPackagingCreate(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+
+	rate, err := parsePackagingRateForm(r)
+	if err != nil {
+		http.Redirect(w, r, "/admin/packaging?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
+
+	_, err = s.db.Exec(`
+		INSERT INTO packaging_rates (name, flat_cost, notes, active)
+		VALUES (?, ?, ?, ?)
+	`, rate.Name, rate.FlatCost, rate.Notes, rate.Active)
+	if err != nil {
+		http.Error(w, "failed to create packaging rate", http.StatusInternalServerError)
+		return
+	}
+
+	http.Redirect(w, r, "/admin/packaging?success=Tarifa+de+empaque+creada+correctamente", http.StatusSeeOther)
+}
+
+func (s *server) handleAdminPackagingUpdate(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || id <= 0 {
+		http.Error(w, "invalid packaging rate id", http.StatusBadRequest)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+
+	rate, err := parsePackagingRateForm(r)
+	if err != nil {
+		http.Redirect(w, r, "/admin/packaging?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
+
+	result, err := s.db.Exec(`
+		UPDATE packaging_rates
+		SET
+			name = ?,
+			flat_cost = ?,
+			notes = ?,
+			active = ?,
+			updated_at = CURRENT_TIMESTAMP
+		WHERE id = ?
+	`, rate.Name, rate.FlatCost, rate.Notes, rate.Active, id)
+	if err != nil {
+		http.Error(w, "failed to update packaging rate", http.StatusInternalServerError)
+		return
+	}
+
+	affected, err := result.RowsAffected()
+	if err != nil {
+		http.Error(w, "failed to update packaging rate", http.StatusInternalServerError)
+		return
+	}
+	if affected == 0 {
+		http.NotFound(w, r)
+		return
+	}
+
+	http.Redirect(w, r, "/admin/packaging?success=Tarifa+de+empaque+actualizada+correctamente", http.StatusSeeOther)
+}
+
 func parseRateConfigForm(r *http.Request) (rateConfig, error) {
 	rates := rateConfig{Currency: "COP"}
 
@@ -463,6 +565,26 @@ func parseShippingRateForm(r *http.Request) (shippingRate, error) {
 	}
 	if rate.Country == "" {
 		return rate, fmt.Errorf("country es requerido")
+	}
+
+	var err error
+	rate.FlatCost, err = parseNonNegativeFloat(r.FormValue("flat_cost"), "flat_cost")
+	if err != nil {
+		return rate, err
+	}
+
+	return rate, nil
+}
+
+func parsePackagingRateForm(r *http.Request) (packagingRate, error) {
+	rate := packagingRate{
+		Name:   strings.TrimSpace(r.FormValue("name")),
+		Notes:  strings.TrimSpace(r.FormValue("notes")),
+		Active: r.FormValue("active") == "1",
+	}
+
+	if rate.Name == "" {
+		return rate, fmt.Errorf("name es requerido")
 	}
 
 	var err error
@@ -645,4 +767,31 @@ func (s *server) listShippingRates() ([]shippingRate, error) {
 	}
 
 	return shippingRates, nil
+}
+
+func (s *server) listPackagingRates() ([]packagingRate, error) {
+	rows, err := s.db.Query(`
+		SELECT id, name, flat_cost, COALESCE(notes, ''), active
+		FROM packaging_rates
+		ORDER BY id DESC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("query packaging rates: %w", err)
+	}
+	defer rows.Close()
+
+	packagingRates := make([]packagingRate, 0)
+	for rows.Next() {
+		var rate packagingRate
+		if err := rows.Scan(&rate.ID, &rate.Name, &rate.FlatCost, &rate.Notes, &rate.Active); err != nil {
+			return nil, fmt.Errorf("scan packaging rate: %w", err)
+		}
+		packagingRates = append(packagingRates, rate)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate packaging rates: %w", err)
+	}
+
+	return packagingRates, nil
 }
