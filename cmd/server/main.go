@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
@@ -16,6 +17,7 @@ import (
 	"github.com/Simplici0/o.works/internal/config"
 	"github.com/Simplici0/o.works/internal/db"
 	"github.com/Simplici0/o.works/internal/migrations"
+	"github.com/Simplici0/o.works/internal/pricing"
 )
 
 type server struct {
@@ -88,6 +90,57 @@ type packagingViewData struct {
 	PackagingRates []packagingRate
 }
 
+type quoteItemInput struct {
+	MaterialID   int64
+	Grams        float64
+	PrintMinutes float64
+	LaborMinutes float64
+	Quantity     int
+}
+
+type quoteCalcBreakdown struct {
+	MaterialCost     float64 `json:"material_cost"`
+	MachineCost      float64 `json:"machine_cost"`
+	LaborCost        float64 `json:"labor_cost"`
+	Subtotal         float64 `json:"subtotal"`
+	Overhead         float64 `json:"overhead"`
+	FailureInsurance float64 `json:"failure_insurance"`
+	PackagingCost    float64 `json:"packaging_cost"`
+	ShippingCost     float64 `json:"shipping_cost"`
+	Margin           float64 `json:"margin"`
+	Tax              float64 `json:"tax"`
+}
+
+type quoteCalcTotals struct {
+	Total float64 `json:"total"`
+}
+
+type quoteSummary struct {
+	ID        int64
+	CreatedAt string
+	Title     string
+	Total     float64
+}
+
+type quotesViewData struct {
+	Quotes []quoteSummary
+}
+
+type quoteDetailViewData struct {
+	ID        int64
+	CreatedAt string
+	Title     string
+	Notes     string
+
+	WastePercent       float64
+	MarginPercent      float64
+	TaxEnabled         bool
+	TaxPercentSnapshot float64
+
+	TotalsJSON    string
+	BreakdownJSON string
+}
+
 func main() {
 	cfg := config.Load()
 
@@ -131,6 +184,9 @@ func main() {
 	r.Get("/admin/packaging", srv.handleAdminPackagingForm)
 	r.Post("/admin/packaging", srv.handleAdminPackagingCreate)
 	r.Post("/admin/packaging/{id}", srv.handleAdminPackagingUpdate)
+	r.Get("/quotes", srv.handleQuotesList)
+	r.Get("/quotes/{id}", srv.handleQuoteDetail)
+	r.Post("/quote/save", srv.handleQuoteSave)
 
 	addr := ":" + cfg.Port
 	log.Printf("listening on %s", addr)
@@ -490,6 +546,320 @@ func (s *server) handleAdminPackagingUpdate(w http.ResponseWriter, r *http.Reque
 	}
 
 	http.Redirect(w, r, "/admin/packaging?success=Tarifa+de+empaque+actualizada+correctamente", http.StatusSeeOther)
+}
+
+func (s *server) handleQuoteSave(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+
+	rates, err := s.getRateConfig()
+	if err != nil {
+		http.Error(w, "failed to load rate config", http.StatusInternalServerError)
+		return
+	}
+
+	items, err := parseQuoteItemsForm(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	wastePercent, err := parsePercent(r.FormValue("waste_percent"), "waste_percent")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	marginPercent, err := parsePercent(r.FormValue("margin_percent"), "margin_percent")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	packagingCost, err := parseNonNegativeFloat(r.FormValue("packaging_cost"), "packaging_cost")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	shippingCost, err := parseNonNegativeFloat(r.FormValue("shipping_cost"), "shipping_cost")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	taxEnabled := r.FormValue("tax_enabled") == "1" || strings.EqualFold(r.FormValue("tax_enabled"), "true") || strings.EqualFold(r.FormValue("tax_enabled"), "on")
+
+	breakdown, totals, err := s.calculateQuoteSnapshot(items, pricing.GlobalInput{
+		MachineHourlyRate:  rates.MachineHourlyRate,
+		LaborPerMinute:     rates.LaborPerMinute,
+		OverheadFixed:      rates.OverheadFixed,
+		OverheadPercent:    rates.OverheadPercent,
+		FailureRatePercent: rates.FailureRatePercent,
+		WastePercent:       wastePercent,
+		MarginPercent:      marginPercent,
+		TaxEnabled:         taxEnabled,
+		TaxPercent:         rates.TaxPercent,
+		PackagingCost:      packagingCost,
+		ShippingCost:       shippingCost,
+	})
+	if err != nil {
+		http.Error(w, "failed to calculate quote", http.StatusBadRequest)
+		return
+	}
+
+	totalsJSON, err := json.Marshal(totals)
+	if err != nil {
+		http.Error(w, "failed to serialize totals", http.StatusInternalServerError)
+		return
+	}
+
+	breakdownJSON, err := json.Marshal(breakdown)
+	if err != nil {
+		http.Error(w, "failed to serialize breakdown", http.StatusInternalServerError)
+		return
+	}
+
+	title := strings.TrimSpace(r.FormValue("title"))
+	notes := strings.TrimSpace(r.FormValue("notes"))
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		http.Error(w, "failed to start transaction", http.StatusInternalServerError)
+		return
+	}
+
+	result, err := tx.Exec(`
+		INSERT INTO quotes (
+			title,
+			notes,
+			waste_percent,
+			margin_percent,
+			tax_enabled,
+			tax_percent_snapshot,
+			totals_json,
+			breakdown_json
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`, nullableString(title), nullableString(notes), wastePercent, marginPercent, taxEnabled, rates.TaxPercent, string(totalsJSON), string(breakdownJSON))
+	if err != nil {
+		_ = tx.Rollback()
+		http.Error(w, "failed to save quote", http.StatusInternalServerError)
+		return
+	}
+
+	quoteID, err := result.LastInsertId()
+	if err != nil {
+		_ = tx.Rollback()
+		http.Error(w, "failed to save quote", http.StatusInternalServerError)
+		return
+	}
+
+	for _, item := range items {
+		_, err = tx.Exec(`
+			INSERT INTO quote_items (quote_id, material_id, grams, print_minutes, labor_minutes, quantity)
+			VALUES (?, ?, ?, ?, ?, ?)
+		`, quoteID, item.MaterialID, item.Grams, item.PrintMinutes, item.LaborMinutes, item.Quantity)
+		if err != nil {
+			_ = tx.Rollback()
+			http.Error(w, "failed to save quote items", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		http.Error(w, "failed to save quote", http.StatusInternalServerError)
+		return
+	}
+
+	http.Redirect(w, r, fmt.Sprintf("/quotes/%d", quoteID), http.StatusSeeOther)
+}
+
+func (s *server) handleQuotesList(w http.ResponseWriter, r *http.Request) {
+	rows, err := s.db.Query(`
+		SELECT id, datetime(created_at), COALESCE(title, ''), totals_json
+		FROM quotes
+		ORDER BY id DESC
+	`)
+	if err != nil {
+		http.Error(w, "failed to load quotes", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	quotes := make([]quoteSummary, 0)
+	for rows.Next() {
+		var q quoteSummary
+		var totalsJSON string
+		if err := rows.Scan(&q.ID, &q.CreatedAt, &q.Title, &totalsJSON); err != nil {
+			http.Error(w, "failed to load quotes", http.StatusInternalServerError)
+			return
+		}
+
+		var totals quoteCalcTotals
+		if err := json.Unmarshal([]byte(totalsJSON), &totals); err == nil {
+			q.Total = totals.Total
+		}
+
+		quotes = append(quotes, q)
+	}
+
+	s.renderTemplate(w, "quotes.html", quotesViewData{Quotes: quotes})
+}
+
+func (s *server) handleQuoteDetail(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || id <= 0 {
+		http.Error(w, "invalid quote id", http.StatusBadRequest)
+		return
+	}
+
+	var data quoteDetailViewData
+	var title sql.NullString
+	var notes sql.NullString
+	err = s.db.QueryRow(`
+		SELECT id, datetime(created_at), title, notes, waste_percent, margin_percent, tax_enabled, tax_percent_snapshot, totals_json, breakdown_json
+		FROM quotes
+		WHERE id = ?
+	`, id).Scan(
+		&data.ID,
+		&data.CreatedAt,
+		&title,
+		&notes,
+		&data.WastePercent,
+		&data.MarginPercent,
+		&data.TaxEnabled,
+		&data.TaxPercentSnapshot,
+		&data.TotalsJSON,
+		&data.BreakdownJSON,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.NotFound(w, r)
+			return
+		}
+		http.Error(w, "failed to load quote", http.StatusInternalServerError)
+		return
+	}
+
+	if title.Valid {
+		data.Title = title.String
+	}
+	if notes.Valid {
+		data.Notes = notes.String
+	}
+
+	s.renderTemplate(w, "quote_detail.html", data)
+}
+
+func nullableString(value string) any {
+	if value == "" {
+		return nil
+	}
+	return value
+}
+
+func parseQuoteItemsForm(r *http.Request) ([]quoteItemInput, error) {
+	materialIDs := r.Form["material_id"]
+	gramsValues := r.Form["grams"]
+	printMinutesValues := r.Form["print_minutes"]
+	laborMinutesValues := r.Form["labor_minutes"]
+	quantityValues := r.Form["quantity"]
+
+	count := len(materialIDs)
+	if count == 0 {
+		return nil, fmt.Errorf("material_id es requerido")
+	}
+	if len(gramsValues) != count || len(printMinutesValues) != count || len(laborMinutesValues) != count || len(quantityValues) != count {
+		return nil, fmt.Errorf("items incompletos")
+	}
+
+	items := make([]quoteItemInput, 0, count)
+	for i := 0; i < count; i++ {
+		materialID, err := strconv.ParseInt(materialIDs[i], 10, 64)
+		if err != nil || materialID <= 0 {
+			return nil, fmt.Errorf("material_id inválido en item %d", i+1)
+		}
+
+		grams, err := parsePositiveFloat(gramsValues[i], "grams")
+		if err != nil {
+			return nil, fmt.Errorf("item %d: %w", i+1, err)
+		}
+
+		printMinutes, err := parsePositiveFloat(printMinutesValues[i], "print_minutes")
+		if err != nil {
+			return nil, fmt.Errorf("item %d: %w", i+1, err)
+		}
+
+		laborMinutes, err := parseNonNegativeFloat(laborMinutesValues[i], "labor_minutes")
+		if err != nil {
+			return nil, fmt.Errorf("item %d: %w", i+1, err)
+		}
+
+		quantity, err := strconv.Atoi(quantityValues[i])
+		if err != nil || quantity <= 0 {
+			return nil, fmt.Errorf("item %d: quantity debe ser mayor a 0", i+1)
+		}
+
+		items = append(items, quoteItemInput{
+			MaterialID:   materialID,
+			Grams:        grams,
+			PrintMinutes: printMinutes,
+			LaborMinutes: laborMinutes,
+			Quantity:     quantity,
+		})
+	}
+
+	return items, nil
+}
+
+func (s *server) calculateQuoteSnapshot(items []quoteItemInput, global pricing.GlobalInput) (quoteCalcBreakdown, quoteCalcTotals, error) {
+	if len(items) == 0 {
+		return quoteCalcBreakdown{}, quoteCalcTotals{}, fmt.Errorf("at least one item is required")
+	}
+
+	breakdown := quoteCalcBreakdown{}
+	for _, item := range items {
+		var costPerKg float64
+		err := s.db.QueryRow(`
+			SELECT cost_per_kg
+			FROM materials
+			WHERE id = ? AND active = TRUE
+		`, item.MaterialID).Scan(&costPerKg)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return quoteCalcBreakdown{}, quoteCalcTotals{}, fmt.Errorf("material not found")
+			}
+			return quoteCalcBreakdown{}, quoteCalcTotals{}, err
+		}
+
+		lineMaterialCost := (item.Grams / 1000.0) * costPerKg * (1.0 + global.WastePercent/100.0)
+		lineMachineCost := (item.PrintMinutes / 60.0) * global.MachineHourlyRate
+		lineLaborCost := item.LaborMinutes * global.LaborPerMinute
+		quantity := float64(item.Quantity)
+
+		breakdown.MaterialCost += lineMaterialCost * quantity
+		breakdown.MachineCost += lineMachineCost * quantity
+		breakdown.LaborCost += lineLaborCost * quantity
+	}
+
+	breakdown.Subtotal = breakdown.MaterialCost + breakdown.MachineCost + breakdown.LaborCost
+	breakdown.Overhead = global.OverheadFixed + breakdown.Subtotal*(global.OverheadPercent/100.0)
+	breakdown.FailureInsurance = breakdown.Subtotal * (global.FailureRatePercent / 100.0)
+	breakdown.PackagingCost = global.PackagingCost
+	breakdown.ShippingCost = global.ShippingCost
+	breakdown.Margin = (global.MarginPercent / 100.0) * (breakdown.Subtotal + breakdown.Overhead + breakdown.FailureInsurance)
+
+	if global.TaxEnabled {
+		breakdown.Tax = (global.TaxPercent / 100.0) * (breakdown.Subtotal + breakdown.Overhead + breakdown.FailureInsurance + breakdown.Margin)
+	}
+
+	totals := quoteCalcTotals{
+		Total: breakdown.Subtotal + breakdown.Overhead + breakdown.FailureInsurance + breakdown.PackagingCost + breakdown.ShippingCost + breakdown.Margin + breakdown.Tax,
+	}
+
+	return breakdown, totals, nil
 }
 
 func parseRateConfigForm(r *http.Request) (rateConfig, error) {
