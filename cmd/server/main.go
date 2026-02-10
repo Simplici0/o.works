@@ -10,6 +10,7 @@ import (
 	"github.com/Simplici0/o.works/internal/config"
 	"github.com/Simplici0/o.works/internal/db"
 	"github.com/Simplici0/o.works/internal/migrations"
+	"github.com/Simplici0/o.works/internal/seed"
 )
 
 type server struct {
@@ -30,6 +31,15 @@ func main() {
 			log.Fatalf("failed to run database migrations: %v", err)
 		}
 	}
+
+	seedStats, err := seed.Run(database, seed.Config{
+		AdminEmail:    cfg.AdminEmail,
+		AdminPassword: cfg.AdminPassword,
+	})
+	if err != nil {
+		log.Fatalf("failed to run startup seed: %v", err)
+	}
+	log.Printf("seed ok (inserts=%d updates=%d)", seedStats.Inserts, seedStats.Updates)
 
 	templates, err := template.ParseFiles(
 		"web/templates/layout.html",
